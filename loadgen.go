@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	//"io"
 	"log"
 	"math/rand"
 	"net"
@@ -24,15 +25,37 @@ func client(addr string, maxMetrics int) {
 		log.Fatal(err)
 	}
 
-	n := maxMetrics / 3
 	w := bufio.NewWriter(conn)
+	n := maxMetrics / 3
+	n2 := n + maxMetrics%3
 
-	// counters
-	for i := 0; i < (n + maxMetrics%3); i++ {
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// Send metrics
+	go sendCounters(n2, w, &wg)
+	go sendGauges(n, w, &wg)
+	go sendTimers(n, w, &wg)
+
+	wg.Wait()
+	w.Flush()
+	conn.Close()
+
+	log.Printf("Client finished sending %d metrics to %s in %s", maxMetrics, addr,
+		time.Now().Sub(t0))
+}
+
+func sendCounters(n int, w *bufio.Writer, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for i := 0; i < n; i++ {
 		w.WriteString("mycounter:1|c\n")
 	}
+}
 
-	// gauges
+func sendGauges(n int, w *bufio.Writer, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	rand.Seed(time.Now().UnixNano())
 	min := 100
 	max := 1000
@@ -40,19 +63,16 @@ func client(addr string, maxMetrics int) {
 	for i := 0; i < n; i++ {
 		fmt.Fprintf(w, "mygauge:%d|g\n", rand.Intn(max-min)+max)
 	}
+}
 
-	// timers
+func sendTimers(n int, w *bufio.Writer, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	rand.Seed(time.Now().UnixNano())
 
 	for i := 0; i < n; i++ {
 		fmt.Fprintf(w, "mytimer:%d|ms\n", rand.Intn(100))
 	}
-
-	log.Printf("Finished sending %d metrics to %s in %s", maxMetrics, addr,
-		time.Now().Sub(t0))
-
-	w.Flush()
-	conn.Close()
 }
 
 func main() {
