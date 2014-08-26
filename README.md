@@ -1,4 +1,4 @@
-statspipe
+go-statsd
 =========
 
-statspipe is a metrics pipeline
+go-statsd is a stats aggregator written in Go (based on Etsy's statsd)
