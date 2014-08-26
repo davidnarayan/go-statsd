@@ -1,10 +1,10 @@
+// Load generator for statspipe
 package main
 
 import (
 	"bufio"
 	"flag"
 	"fmt"
-	//"io"
 	"log"
 	"math/rand"
 	"net"
@@ -61,7 +61,7 @@ func sendGauges(n int, w *bufio.Writer, wg *sync.WaitGroup) {
 	max := 1000
 
 	for i := 0; i < n; i++ {
-		fmt.Fprintf(w, "mygauge:%d|g\n", rand.Intn(max-min)+max)
+		fmt.Fprintf(w, "mygauge%d:%d|g\n", i+1, rand.Intn(max-min)+max)
 	}
 }
 
