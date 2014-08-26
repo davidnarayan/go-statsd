@@ -141,7 +141,7 @@ func handleConnection(conn net.Conn) {
 			}
 		}
 
-		go handleMessage(line)
+		handleMessage(line)
 	}
 }
 
