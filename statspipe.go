@@ -28,9 +28,11 @@ const BufSize = 8192
 
 // Command line flags
 var (
-	listen     = flag.String("listen", ":1514", "UDP listener address")
-	graphite   = flag.String("graphite", "localhost:2003", "Graphite server address")
-	cpuprofile = flag.Bool("cpuprofile", false, "Enable CPU profiling")
+	listen       = flag.String("listen", ":1514", "UDP listener address")
+	graphite     = flag.String("graphite", "localhost:2003", "Graphite server address")
+	cpuprofile   = flag.Bool("cpuprofile", false, "Enable CPU profiling")
+	memprofile   = flag.Bool("memprofile", false, "Enable memory profiling")
+	blockprofile = flag.Bool("blockprofile", false, "Enable memory profiling")
 )
 
 // Metric Types
@@ -298,7 +300,6 @@ func flushInternalStats(buf *bytes.Buffer, now int64) {
 	atomic.StoreInt64(&stats.IngressCounters, 0)
 	atomic.StoreInt64(&stats.IngressGauges, 0)
 	atomic.StoreInt64(&stats.IngressTimers, 0)
-
 }
 
 func flushCounters(buf *bytes.Buffer, now int64) {
@@ -403,8 +404,8 @@ func main() {
 	// Profiling
 	cfg := profile.Config{
 		CPUProfile:   *cpuprofile,
-		MemProfile:   false,
-		BlockProfile: false,
+		MemProfile:   *memprofile,
+		BlockProfile: *blockprofile,
 		ProfilePath:  ".",
 	}
 
@@ -416,5 +417,4 @@ func main() {
 
 	// Setup listeners
 	go log.Fatal(ListenTCP(*listen))
-
 }
