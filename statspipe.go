@@ -145,7 +145,7 @@ func handleConnection(conn net.Conn) {
 
 // Metrics should be in statsd format
 // <metric_name>:<metric_value>|<metric_type>
-var statsPattern = regexp.MustCompile(`[\w\.]+:\d+\|(?:c|ms|g)`)
+var statsPattern = regexp.MustCompile(`[\w\.]+:-?\d+\|(?:c|ms|g)(?:\|\@[\d\.]+)?`)
 
 // Handle an event message
 func handleMessage(buf []byte) {
@@ -166,8 +166,6 @@ func handleMessage(buf []byte) {
 	} else {
 		log.Println("No metrics found in message")
 	}
-
-	// Send messages downstream
 }
 
 type Metric struct {
@@ -180,11 +178,28 @@ type Metric struct {
 func handleMetric(b []byte) error {
 	i := bytes.Index(b, []byte(":"))
 	j := bytes.Index(b, []byte("|"))
+	k := bytes.Index(b, []byte("@"))
 	v := b[i+1 : j]
+
+	// End position of the metric type is the end of the byte slice
+	// if no sample was sent.
+	tEnd := len(b)
+	var sampleRate float64 = 1
+
+	if k > -1 {
+		tEnd = k - 1 // Use -1 because of the | before the @
+		sr := b[(k + 1):len(b)]
+		var err error
+		sampleRate, err = strconv.ParseFloat(string(sr), 64)
+
+		if err != nil {
+			return err
+		}
+	}
 
 	m := &Metric{
 		Name: string(b[0:i]),
-		Type: string(b[j+1 : len(b)]),
+		Type: string(b[j+1 : tEnd]),
 	}
 
 	switch m.Type {
@@ -195,7 +210,7 @@ func handleMetric(b []byte) error {
 			return err
 		}
 
-		m.Value = val
+		m.Value = int64(float64(val) / sampleRate)
 	default:
 		val, err := strconv.ParseUint(string(v), 10, 64)
 
@@ -224,7 +239,6 @@ func processMetrics() {
 			case "c":
 				counters.Lock()
 				counters.m[m.Name] += m.Value.(int64)
-				//log.Printf("DEBUG: Increment counter %s by %d", m.Name, m.Value.(int64))
 				counters.Unlock()
 				atomic.AddInt64(&stats.Counters, 1)
 			case "g":
