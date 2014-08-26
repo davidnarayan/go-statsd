@@ -5,17 +5,16 @@ import (
 	"bufio"
 	"bytes"
 	"flag"
-	"io"
-	"sync"
-	"sync/atomic"
-	//"io"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net"
 	"regexp"
 	"sort"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	//"github.com/davecgh/go-spew/spew"
@@ -62,10 +61,11 @@ var Percentiles = []int{5, 95}
 
 // Internal metrics
 type Stats struct {
-	Metrics  int64
-	Counters int64
-	Gauges   int64
-	Timers   int64
+	IngressRate     int64
+	IngressMetrics  int64
+	IngressCounters int64
+	IngressGauges   int64
+	IngressTimers   int64
 }
 
 var stats = &Stats{}
@@ -233,19 +233,21 @@ func processMetrics() {
 		case <-ticker.C:
 			flushMetrics()
 		case m := <-In:
-			atomic.AddInt64(&stats.Metrics, 1)
+			atomic.AddInt64(&stats.IngressMetrics, 1)
 
 			switch m.Type {
 			case "c":
 				counters.Lock()
 				counters.m[m.Name] += m.Value.(int64)
 				counters.Unlock()
-				atomic.AddInt64(&stats.Counters, 1)
+				atomic.AddInt64(&stats.IngressCounters, 1)
+
 			case "g":
 				gauges.Lock()
 				gauges.m[m.Name] = m.Value.(uint64)
 				gauges.Unlock()
-				atomic.AddInt64(&stats.Gauges, 1)
+				atomic.AddInt64(&stats.IngressGauges, 1)
+
 			case "ms":
 				timers.Lock()
 				_, ok := timers.m[m.Name]
@@ -257,7 +259,8 @@ func processMetrics() {
 
 				timers.m[m.Name] = append(timers.m[m.Name], m.Value.(uint64))
 				timers.Unlock()
-				atomic.AddInt64(&stats.Timers, 1)
+				atomic.AddInt64(&stats.IngressTimers, 1)
+
 			}
 		}
 	}
@@ -269,44 +272,53 @@ func flushMetrics() {
 
 	log.Printf("%+v", stats)
 
+	// Build buffer of stats
 	flushCounters(&buf, now)
 	flushGauges(&buf, now)
 	flushTimers(&buf, now)
+	flushInternalStats(&buf, now)
 
 	// Send metrics to Graphite
 	sendGraphite(&buf)
 }
 
+func flushInternalStats(buf *bytes.Buffer, now int64) {
+	//fmt.Fprintf(buf, "statsd.metrics.per_second %d %d\n", v, now)
+	fmt.Fprintf(buf, "statsd.metrics.count %d %d\n",
+		atomic.LoadInt64(&stats.IngressMetrics), now)
+	fmt.Fprintf(buf, "statsd.counters.count %d %d\n",
+		atomic.LoadInt64(&stats.IngressCounters), now)
+	fmt.Fprintf(buf, "statsd.gauges.count %d %d\n",
+		atomic.LoadInt64(&stats.IngressGauges), now)
+	fmt.Fprintf(buf, "statsd.timers.count %d %d\n",
+		atomic.LoadInt64(&stats.IngressTimers), now)
+
+	// Clear internal metrics
+	atomic.StoreInt64(&stats.IngressMetrics, 0)
+	atomic.StoreInt64(&stats.IngressCounters, 0)
+	atomic.StoreInt64(&stats.IngressGauges, 0)
+	atomic.StoreInt64(&stats.IngressTimers, 0)
+
+}
+
 func flushCounters(buf *bytes.Buffer, now int64) {
 	counters.Lock()
 	defer counters.Unlock()
-	var n int64
 
 	for k, v := range counters.m {
 		fmt.Fprintf(buf, "%s %d %d\n", k, v, now)
 		delete(counters.m, k)
-		n += v
 	}
-
-	log.Printf("counters=%d n=%d", atomic.LoadInt64(&stats.Counters), n)
-	atomic.StoreInt64(&stats.Counters, atomic.LoadInt64(&stats.Counters)-n)
-	atomic.StoreInt64(&stats.Metrics, atomic.LoadInt64(&stats.Metrics)-n)
 }
 
 func flushGauges(buf *bytes.Buffer, now int64) {
 	gauges.Lock()
 	defer gauges.Unlock()
-	var n int64
 
 	for k, v := range gauges.m {
 		fmt.Fprintf(buf, "%s %d %d\n", k, v, now)
 		delete(gauges.m, k)
-		n++
 	}
-
-	// TODO : These counters aren't right...
-	atomic.StoreInt64(&stats.Gauges, atomic.LoadInt64(&stats.Gauges)-n)
-	atomic.StoreInt64(&stats.Metrics, atomic.LoadInt64(&stats.Metrics)-n)
 }
 
 func flushTimers(buf *bytes.Buffer, now int64) {
@@ -351,11 +363,6 @@ func flushTimers(buf *bytes.Buffer, now int64) {
 
 		delete(timers.m, k)
 	}
-
-	log.Printf("timers=%d n=%d", atomic.LoadInt64(&stats.Timers), n)
-
-	atomic.StoreInt64(&stats.Timers, atomic.LoadInt64(&stats.Timers)-n)
-	atomic.StoreInt64(&stats.Metrics, atomic.LoadInt64(&stats.Metrics)-n)
 }
 
 // percentile calculates Nth percentile of a list of values
