@@ -183,22 +183,25 @@ func handleMessage(buf []byte) {
 	//spew.Dump(m)
 
 	if m != nil {
-		for _, metric := range m {
-			err := handleMetric(metric)
+		for _, raw := range m {
+			metric, err := parseMetric(raw)
 
 			if err != nil {
-				log.Printf("ERROR: Unable to process metric %s: %s",
-					metric, err)
+				log.Printf("ERROR: Unable to parse metric %s: %s",
+					raw, err)
+				continue
 			}
+
+			// Send metric off for processing
+			In <- metric
 		}
 	} else {
 		log.Println("No metrics found in message")
 	}
 }
 
-// handleMetric parses a raw metric into a Metric struct and sends it off for
-// processing
-func handleMetric(b []byte) error {
+// parseMetric parses a raw metric into a Metric struct
+func parseMetric(b []byte) (*Metric, error) {
 	i := bytes.Index(b, []byte(":"))
 	j := bytes.Index(b, []byte("|"))
 	k := bytes.Index(b, []byte("@"))
@@ -217,7 +220,7 @@ func handleMetric(b []byte) error {
 		sampleRate, err = strconv.ParseFloat(string(sr), 64)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -231,7 +234,7 @@ func handleMetric(b []byte) error {
 		val, err := strconv.ParseInt(string(v), 10, 64)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		m.Value = int64(float64(val) / sampleRate)
@@ -239,14 +242,13 @@ func handleMetric(b []byte) error {
 		val, err := strconv.ParseUint(string(v), 10, 64)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		m.Value = val
 	}
 
-	In <- m
-	return nil
+	return m, nil
 }
 
 // processMetrics updates new metrics and flushes aggregates to Graphite
