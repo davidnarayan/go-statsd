@@ -2,6 +2,7 @@ package main
 
 import (
 	//"fmt"
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -49,4 +50,61 @@ func TestParseMetric(t *testing.T) {
 				tt.input, got.Type, want.Type)
 		}
 	}
+}
+
+//-----------------------------------------------------------------------------
+// Benchmarks
+
+func benchmarkRegexFindAll(size int, b *testing.B) {
+	var buf bytes.Buffer
+
+	for {
+		if buf.Len() >= size {
+			break
+		}
+
+		buf.Write([]byte("mycounter:1|c "))
+	}
+
+	for n := 0; n < b.N; n++ {
+		statsPattern.FindAll(buf.Bytes(), -1)
+	}
+}
+
+func BenchmarkRegexFindAll512(b *testing.B) {
+	benchmarkRegexFindAll(512, b)
+}
+
+func BenchmarkRegexFindAll1024(b *testing.B) {
+	benchmarkRegexFindAll(1024, b)
+}
+
+func BenchmarkRegexFindAll2048(b *testing.B) {
+	benchmarkRegexFindAll(2048, b)
+}
+
+func BenchmarkRegexFindAll4096(b *testing.B) {
+	benchmarkRegexFindAll(4096, b)
+}
+
+func BenchmarkRegexFindAll8192(b *testing.B) {
+	benchmarkRegexFindAll(8192, b)
+}
+
+func benchmarkParseMetric(s string, b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		parseMetric([]byte(s))
+	}
+}
+
+func BenchmarkParseMetricCounter(b *testing.B) {
+	benchmarkParseMetric("mycounter:1|c", b)
+}
+
+func BenchmarkParseMetricGauge(b *testing.B) {
+	benchmarkParseMetric("mygauge:78|g", b)
+}
+
+func BenchmarkParseMetricTimer(b *testing.B) {
+	benchmarkParseMetric("mytimer:123|ms", b)
 }
