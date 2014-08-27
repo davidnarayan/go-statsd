@@ -21,3 +21,9 @@ _testmain.go
 
 *.exe
 *.test
+
+# Profiling output
+*.pprof
+
+# Binary
+statsd
