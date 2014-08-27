@@ -4,6 +4,7 @@ import (
 	"bytes"
 	//"fmt"
 	"reflect"
+	"regexp"
 	"testing"
 )
 
@@ -151,6 +152,8 @@ func BenchmarkParseMetricGauge(b *testing.B)   { benchmarkParseMetric("mygauge:7
 func BenchmarkParseMetricTimer(b *testing.B)   { benchmarkParseMetric("mytimer:123|ms", b) }
 
 // Benchmark metric extraction using regular expressions
+var statsPattern = regexp.MustCompile(`[\w\.]+:-?\d+\|(?:c|ms|g)(?:\|\@[\d\.]+)?`)
+
 func benchmarkRegexFindAll(size int, b *testing.B) {
 	buf := getBuf(size)
 

@@ -119,7 +119,7 @@ func ListenUDP(addr string) error {
 	log.Printf("Listening on UDP %s\n", ln)
 
 	for {
-		n, raddr, err := sock.ReadFromUDP(buf[:])
+		_, _, err := sock.ReadFromUDP(buf[:])
 
 		if err != nil {
 			// TODO: handle error
