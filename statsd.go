@@ -10,7 +10,7 @@ import (
 	"log"
 	"math"
 	"net"
-	"regexp"
+	//"regexp"
 	"sort"
 	"strconv"
 	"sync"
@@ -52,7 +52,7 @@ type Metric struct {
 //     <metric_name>:<metric_value>|<metric_type>|@<sample_rate>
 //
 // Note: The sample rate is optional
-var statsPattern = regexp.MustCompile(`[\w\.]+:-?\d+\|(?:c|ms|g)(?:\|\@[\d\.]+)?`)
+// var statsPattern = regexp.MustCompile(`[\w\.]+:-?\d+\|(?:c|ms|g)(?:\|\@[\d\.]+)?`)
 
 // In is a channel for processing metrics
 var In = make(chan *Metric)
@@ -177,26 +177,30 @@ func handleConnection(conn net.Conn) {
 
 // Handle an event message
 func handleMessage(buf []byte) {
-	//log.Printf("DEBUG: buf is %d bytes\n", len(buf))
-	// Parse metrics from the message
-	m := statsPattern.FindAll(buf, -1)
-	//spew.Dump(m)
+	// According to the statsd protocol, metrics should be separated by a
+	// newline. This parser isn't quite as strict since it may be receiving
+	// metrics from clients that aren't proper statsd clients (e.g. syslog).
+	// Instead, find metrics by looking for tokens between spaces and then
+	// use parseMetric to create an actual metric that can be aggregated.
+	tokens := bytes.Split(buf, []byte(" "))
 
-	if m != nil {
-		for _, raw := range m {
-			metric, err := parseMetric(raw)
-
-			if err != nil {
-				log.Printf("ERROR: Unable to parse metric %s: %s",
-					raw, err)
-				continue
-			}
-
-			// Send metric off for processing
-			In <- metric
+	for _, token := range tokens {
+		// metrics must have a : and | at a minimum
+		if bytes.Index(token, []byte(":")) == -1 ||
+			bytes.Index(token, []byte("|")) == -1 {
+			continue
 		}
-	} else {
-		log.Println("No metrics found in message")
+
+		metric, err := parseMetric(token)
+
+		if err != nil {
+			log.Printf("ERROR: Unable to parse metric %s: %s",
+				token, err)
+			continue
+		}
+
+		// Send metric off for processing
+		In <- metric
 	}
 }
 
