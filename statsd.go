@@ -28,38 +28,55 @@ const BufSize = 8192
 
 // Command line flags
 var (
-	listen       = flag.String("listen", ":1514", "UDP listener address")
-	graphite     = flag.String("graphite", "localhost:2003", "Graphite server address")
+	listen   = flag.String("listen", ":1514", "Listener address")
+	graphite = flag.String("graphite", "localhost:2003", "Graphite server address")
+
+	// Profiling
 	cpuprofile   = flag.Bool("cpuprofile", false, "Enable CPU profiling")
 	memprofile   = flag.Bool("memprofile", false, "Enable memory profiling")
-	blockprofile = flag.Bool("blockprofile", false, "Enable memory profiling")
+	blockprofile = flag.Bool("blockprofile", false, "Enable block profiling")
 )
 
-// Metric Types
+//-----------------------------------------------------------------------------
+// Data structures
+
+// Metric is a numeric data point
+type Metric struct {
+	Bucket string
+	Value  interface{}
+	Type   string
+}
+
+// Metrics should be in statsd format. Metric names may not have spaces.
+//
+//     <metric_name>:<metric_value>|<metric_type>|@<sample_rate>
+//
+// Note: The sample rate is optional
+var statsPattern = regexp.MustCompile(`[\w\.]+:-?\d+\|(?:c|ms|g)(?:\|\@[\d\.]+)?`)
+
+// In is a channel for processing metrics
 var In = make(chan *Metric)
 
+// counters holds all of the counter metrics
 var counters = struct {
 	sync.RWMutex
 	m map[string]int64
 }{m: make(map[string]int64)}
 
+// gauges holds all of the gauge metrics
 var gauges = struct {
 	sync.RWMutex
 	m map[string]uint64
 }{m: make(map[string]uint64)}
 
+// Timers is a list of uints
 type Timers []uint64
 
-func (t Timers) Len() int           { return len(t) }
-func (t Timers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
-func (t Timers) Less(i, j int) bool { return t[i] < t[j] }
-
+// timers holds all of the timer metrics
 var timers = struct {
 	sync.RWMutex
 	m map[string]Timers
 }{m: make(map[string]Timers)}
-
-var Percentiles = []int{5, 95}
 
 // Internal metrics
 type Stats struct {
@@ -72,9 +89,19 @@ type Stats struct {
 
 var stats = &Stats{}
 
-//-----------------------------------------------------------------------------
-// Read syslog stream
+// TODO: move this to command line option
+var Percentiles = []int{5, 95}
 
+//-----------------------------------------------------------------------------
+
+// Implement the sort interface for Timers
+func (t Timers) Len() int           { return len(t) }
+func (t Timers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+func (t Timers) Less(i, j int) bool { return t[i] < t[j] }
+
+//-----------------------------------------------------------------------------
+
+// ListenUDP creates a UDP listener
 func ListenUDP(addr string) error {
 	var buf = make([]byte, 1024)
 	ln, err := net.ResolveUDPAddr("udp", addr)
@@ -104,6 +131,7 @@ func ListenUDP(addr string) error {
 	}
 }
 
+// ListenTCP creates a TCP listener
 func ListenTCP(addr string) error {
 	l, err := net.Listen("tcp", addr)
 
@@ -126,10 +154,12 @@ func ListenTCP(addr string) error {
 	}
 }
 
+// handleConnection handles a single client connection
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	r := bufio.NewReader(conn)
 
+	// Incoming metrics should be separated by a newline
 	for {
 		line, err := r.ReadBytes('\n')
 
@@ -144,10 +174,6 @@ func handleConnection(conn net.Conn) {
 		handleMessage(line)
 	}
 }
-
-// Metrics should be in statsd format
-// <metric_name>:<metric_value>|<metric_type>
-var statsPattern = regexp.MustCompile(`[\w\.]+:-?\d+\|(?:c|ms|g)(?:\|\@[\d\.]+)?`)
 
 // Handle an event message
 func handleMessage(buf []byte) {
@@ -170,13 +196,8 @@ func handleMessage(buf []byte) {
 	}
 }
 
-type Metric struct {
-	Name  string
-	Value interface{}
-	Type  string
-}
-
-// handle a single metric
+// handleMetric parses a raw metric into a Metric struct and sends it off for
+// processing
 func handleMetric(b []byte) error {
 	i := bytes.Index(b, []byte(":"))
 	j := bytes.Index(b, []byte("|"))
@@ -188,6 +209,7 @@ func handleMetric(b []byte) error {
 	tEnd := len(b)
 	var sampleRate float64 = 1
 
+	// Indicates that a sample rate was sent as part of the metric
 	if k > -1 {
 		tEnd = k - 1 // Use -1 because of the | before the @
 		sr := b[(k + 1):len(b)]
@@ -200,8 +222,8 @@ func handleMetric(b []byte) error {
 	}
 
 	m := &Metric{
-		Name: string(b[0:i]),
-		Type: string(b[j+1 : tEnd]),
+		Bucket: string(b[0:i]),
+		Type:   string(b[j+1 : tEnd]),
 	}
 
 	switch m.Type {
@@ -227,6 +249,7 @@ func handleMetric(b []byte) error {
 	return nil
 }
 
+// processMetrics updates new metrics and flushes aggregates to Graphite
 func processMetrics() {
 	ticker := time.NewTicker(FlushInterval)
 
@@ -240,26 +263,26 @@ func processMetrics() {
 			switch m.Type {
 			case "c":
 				counters.Lock()
-				counters.m[m.Name] += m.Value.(int64)
+				counters.m[m.Bucket] += m.Value.(int64)
 				counters.Unlock()
 				atomic.AddInt64(&stats.IngressCounters, 1)
 
 			case "g":
 				gauges.Lock()
-				gauges.m[m.Name] = m.Value.(uint64)
+				gauges.m[m.Bucket] = m.Value.(uint64)
 				gauges.Unlock()
 				atomic.AddInt64(&stats.IngressGauges, 1)
 
 			case "ms":
 				timers.Lock()
-				_, ok := timers.m[m.Name]
+				_, ok := timers.m[m.Bucket]
 
 				if !ok {
 					var t Timers
-					timers.m[m.Name] = t
+					timers.m[m.Bucket] = t
 				}
 
-				timers.m[m.Name] = append(timers.m[m.Name], m.Value.(uint64))
+				timers.m[m.Bucket] = append(timers.m[m.Bucket], m.Value.(uint64))
 				timers.Unlock()
 				atomic.AddInt64(&stats.IngressTimers, 1)
 
@@ -268,6 +291,7 @@ func processMetrics() {
 	}
 }
 
+// flushMetrics sends metrics to Graphite
 func flushMetrics() {
 	var buf bytes.Buffer
 	now := time.Now().Unix()
@@ -284,6 +308,7 @@ func flushMetrics() {
 	sendGraphite(&buf)
 }
 
+// flushInternalStats writes the internal stats to the buffer
 func flushInternalStats(buf *bytes.Buffer, now int64) {
 	//fmt.Fprintf(buf, "statsd.metrics.per_second %d %d\n", v, now)
 	fmt.Fprintf(buf, "statsd.metrics.count %d %d\n",
@@ -302,6 +327,7 @@ func flushInternalStats(buf *bytes.Buffer, now int64) {
 	atomic.StoreInt64(&stats.IngressTimers, 0)
 }
 
+// flushCounters writes the counters to the buffer
 func flushCounters(buf *bytes.Buffer, now int64) {
 	counters.Lock()
 	defer counters.Unlock()
@@ -312,6 +338,7 @@ func flushCounters(buf *bytes.Buffer, now int64) {
 	}
 }
 
+// flushGauges writes the gauges to the buffer
 func flushGauges(buf *bytes.Buffer, now int64) {
 	gauges.Lock()
 	defer gauges.Unlock()
@@ -322,6 +349,7 @@ func flushGauges(buf *bytes.Buffer, now int64) {
 	}
 }
 
+// flushTimers writes the timers and aggregate statistics to the buffer
 func flushTimers(buf *bytes.Buffer, now int64) {
 	timers.RLock()
 	defer timers.RUnlock()
