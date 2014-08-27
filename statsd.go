@@ -28,7 +28,7 @@ const BufSize = 8192
 
 // Command line flags
 var (
-	listen   = flag.String("listen", ":1514", "Listener address")
+	listen   = flag.String("listen", ":8125", "Listener address")
 	graphite = flag.String("graphite", "localhost:2003", "Graphite server address")
 
 	// Profiling
@@ -126,8 +126,15 @@ func ListenUDP(addr string) error {
 			continue
 		}
 
-		log.Printf("Read %d bytes from %s\n", n, raddr)
-		go handleMessage(buf)
+		go handleUdpMessage(buf)
+	}
+}
+
+func handleUdpMessage(buf []byte) {
+	tokens := bytes.Split(buf, []byte("\n"))
+
+	for _, token := range tokens {
+		handleMessage(token)
 	}
 }
 
@@ -414,14 +421,15 @@ func sendGraphite(buf *bytes.Buffer) {
 	conn, err := net.Dial("tcp", *graphite)
 
 	if err != nil {
-		log.Fatal("ERROR: Unable to connect to graphite")
+		log.Println("ERROR: Unable to connect to graphite")
+		return
 	}
 
 	w := bufio.NewWriter(conn)
 	n, err := buf.WriteTo(w)
 
 	if err != nil {
-		log.Fatal("ERROR: Unable to write to graphite")
+		log.Println("ERROR: Unable to write to graphite")
 	}
 
 	w.Flush()
@@ -450,5 +458,18 @@ func main() {
 	go processMetrics()
 
 	// Setup listeners
-	go log.Fatal(ListenTCP(*listen))
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		log.Fatal(ListenUDP(*listen))
+	}()
+
+	go func() {
+		defer wg.Done()
+		log.Fatal(ListenTCP(*listen))
+	}()
+
+	wg.Wait()
 }
