@@ -35,6 +35,8 @@ var (
 	cpuprofile   = flag.Bool("cpuprofile", false, "Enable CPU profiling")
 	memprofile   = flag.Bool("memprofile", false, "Enable memory profiling")
 	blockprofile = flag.Bool("blockprofile", false, "Enable block profiling")
+
+	debug = flag.Bool("debug", false, "Enable debug mode")
 )
 
 //-----------------------------------------------------------------------------
@@ -119,11 +121,16 @@ func ListenUDP(addr string) error {
 	log.Printf("Listening on UDP %s\n", ln)
 
 	for {
-		_, _, err := sock.ReadFromUDP(buf[:])
+		n, raddr, err := sock.ReadFromUDP(buf[:])
 
 		if err != nil {
 			// TODO: handle error
 			continue
+		}
+
+		if *debug {
+			log.Printf("DEBUG: Received UDP message: bytes=%d client=%s",
+				n, raddr)
 		}
 
 		go handleUdpMessage(buf)
@@ -176,6 +183,11 @@ func handleConnection(conn net.Conn) {
 			} else {
 				// TODO: handle error
 			}
+		}
+
+		if *debug {
+			log.Printf("DEBUG: Received TCP message: bytes=%d client=%s",
+				len(line), conn.RemoteAddr())
 		}
 
 		handleMessage(line)
@@ -257,6 +269,11 @@ func parseMetric(b []byte) (*Metric, error) {
 		}
 
 		m.Value = val
+
+	default:
+		err := fmt.Errorf("unable to create metric for type %q", m.Type)
+
+		return nil, err
 	}
 
 	return m, nil
@@ -299,6 +316,15 @@ func processMetrics() {
 				timers.Unlock()
 				atomic.AddInt64(&stats.IngressTimers, 1)
 
+			default:
+				if *debug {
+					log.Printf("DEBUG: Unable to process unknown metric type %q", m.Type)
+				}
+
+			}
+
+			if *debug {
+				log.Printf("DEBUG: Finished processing metric: %+v", m)
 			}
 		}
 	}
@@ -418,10 +444,14 @@ func perc(values []uint64, pct int) float64 {
 
 // sendGraphite sends metrics to graphite
 func sendGraphite(buf *bytes.Buffer) {
+	log.Printf("Sending metrics to Graphite: bytes=%d host=%s",
+		buf.Len(), *graphite)
+	t0 := time.Now()
+
 	conn, err := net.Dial("tcp", *graphite)
 
 	if err != nil {
-		log.Println("ERROR: Unable to connect to graphite")
+		log.Printf("ERROR: Unable to connect to graphite: %s", err)
 		return
 	}
 
@@ -429,13 +459,14 @@ func sendGraphite(buf *bytes.Buffer) {
 	n, err := buf.WriteTo(w)
 
 	if err != nil {
-		log.Println("ERROR: Unable to write to graphite")
+		log.Printf("ERROR: Unable to write to graphite: %s", err)
 	}
 
 	w.Flush()
 	conn.Close()
 
-	log.Printf("Wrote %d bytes to Graphite", n)
+	log.Printf("Finished sending metrics to Graphite: bytes=%d host=%s duration=%s",
+		n, conn.RemoteAddr(), time.Now().Sub(t0))
 }
 
 //-----------------------------------------------------------------------------
