@@ -14,15 +14,11 @@ type metricTest struct {
 }
 
 var metricTests = []metricTest{
-	// Counters
 	{"mycounter:1|c", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
-	//{"mycounter:1.1|c", &Metric{Bucket: "mycounter", Value: float64(1.1), Type: "c"}},
+	{"mycounter:1|c\n", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
+	{"  mycounter:1|c ", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
 
-	// Gauges
 	{"mygauge:78|g", &Metric{Bucket: "mygauge", Value: uint64(78), Type: "g"}},
-	//{"mygauge:15.6|g", &Metric{Bucket: "mygauge", Value: uint64(78), Type: "g"}},
-
-	// Timers
 	{"mytimer:123|ms", &Metric{Bucket: "mytimer", Value: uint64(123), Type: "ms"}},
 }
 
@@ -38,18 +34,18 @@ func TestParseMetric(t *testing.T) {
 		}
 
 		if got.Bucket != want.Bucket {
-			t.Errorf("parseMetric(%s): got: %s, want %s",
+			t.Errorf("parseMetric(%q): got: %s, want %s",
 				tt.input, got.Bucket, want.Bucket)
 		}
 
 		if got.Value != want.Value {
-			t.Errorf("parseMetric(%s): got: %d (%s), want %d (%s)",
+			t.Errorf("parseMetric(%q): got: %d (%s), want %d (%s)",
 				tt.input, got.Value, reflect.TypeOf(got.Value), want.Value,
 				reflect.TypeOf(want.Value))
 		}
 
 		if got.Type != want.Type {
-			t.Errorf("parseMetric(%s): got: %s, want %s",
+			t.Errorf("parseMetric(%q): got: %q, want %q",
 				tt.input, got.Type, want.Type)
 		}
 	}
@@ -67,18 +63,18 @@ func TestHandleMessage(t *testing.T) {
 				want := tt.expected
 
 				if got.Bucket != want.Bucket {
-					t.Errorf("handleMessage(%s): got: %s, want %s",
+					t.Errorf("handleMessage(%q): got: %q, want %q",
 						tt.input, got.Bucket, want.Bucket)
 				}
 
 				if got.Value != want.Value {
-					t.Errorf("handleMessage(%s): got: %d (%s), want %d (%s)",
+					t.Errorf("handleMessage(%q): got: %d (%s), want %d (%s)",
 						tt.input, got.Value, reflect.TypeOf(got.Value), want.Value,
 						reflect.TypeOf(want.Value))
 				}
 
 				if got.Type != want.Type {
-					t.Errorf("handleMessage(%s): got: %s, want %s",
+					t.Errorf("handleMessage(%q): got: %q, want %q",
 						tt.input, got.Type, want.Type)
 				}
 			case <-done:
