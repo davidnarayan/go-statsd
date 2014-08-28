@@ -102,7 +102,7 @@ func getBuf(size int) []byte {
 			break
 		}
 
-		buf.Write([]byte("mycounter:1|c "))
+		buf.Write([]byte("a:1|c\n"))
 	}
 
 	return buf.Bytes()
@@ -110,11 +110,13 @@ func getBuf(size int) []byte {
 
 func benchmarkHandleMessage(size int, b *testing.B) {
 	done := make(chan bool)
+	//num := 0
 
 	go func() {
 		for {
 			select {
 			case <-In:
+				//num++
 			case <-done:
 				break
 			}
@@ -123,13 +125,22 @@ func benchmarkHandleMessage(size int, b *testing.B) {
 
 	buf := getBuf(size)
 
+	b.ResetTimer()
+	b.StartTimer()
+
 	for n := 0; n < b.N; n++ {
 		handleMessage(buf)
 	}
 
+	b.StopTimer()
+
 	done <- true
+	//b.Logf("Handled %d metrics", num)
 }
 
+func BenchmarkHandleMessage64(b *testing.B)   { benchmarkHandleMessage(64, b) }
+func BenchmarkHandleMessage128(b *testing.B)  { benchmarkHandleMessage(128, b) }
+func BenchmarkHandleMessage256(b *testing.B)  { benchmarkHandleMessage(256, b) }
 func BenchmarkHandleMessage512(b *testing.B)  { benchmarkHandleMessage(512, b) }
 func BenchmarkHandleMessage1024(b *testing.B) { benchmarkHandleMessage(1024, b) }
 func BenchmarkHandleMessage2048(b *testing.B) { benchmarkHandleMessage(2048, b) }
@@ -177,7 +188,7 @@ func benchmarkBytesSplit(size int, b *testing.B) {
 	b.StartTimer()
 
 	for n := 0; n < b.N; n++ {
-		bytes.Split(buf, []byte(" "))
+		bytes.Split(buf, []byte("\n"))
 	}
 
 	b.StopTimer()
