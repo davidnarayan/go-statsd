@@ -24,6 +24,11 @@ import (
 const FlushInterval = time.Duration(10 * time.Second)
 const BufSize = 8192
 
+// Metric Types
+const Counter = "c"
+const Gauge = "g"
+const Timer = "ms"
+
 //-----------------------------------------------------------------------------
 
 // Command line flags
@@ -253,7 +258,7 @@ func parseMetric(b []byte) (*Metric, error) {
 	}
 
 	switch m.Type {
-	case "c":
+	case Counter:
 		val, err := strconv.ParseInt(string(v), 10, 64)
 
 		if err != nil {
@@ -261,7 +266,8 @@ func parseMetric(b []byte) (*Metric, error) {
 		}
 
 		m.Value = int64(float64(val) / sampleRate)
-	default:
+
+	case Gauge, Timer:
 		val, err := strconv.ParseUint(string(v), 10, 64)
 
 		if err != nil {
@@ -288,22 +294,26 @@ func processMetrics() {
 		case <-ticker.C:
 			flushMetrics()
 		case m := <-In:
+			if *debug {
+				log.Printf("DEBUG: Received metric for processing: %+v", m)
+			}
+
 			atomic.AddInt64(&stats.IngressMetrics, 1)
 
 			switch m.Type {
-			case "c":
+			case Counter:
 				counters.Lock()
 				counters.m[m.Bucket] += m.Value.(int64)
 				counters.Unlock()
 				atomic.AddInt64(&stats.IngressCounters, 1)
 
-			case "g":
+			case Gauge:
 				gauges.Lock()
 				gauges.m[m.Bucket] = m.Value.(uint64)
 				gauges.Unlock()
 				atomic.AddInt64(&stats.IngressGauges, 1)
 
-			case "ms":
+			case Timer:
 				timers.Lock()
 				_, ok := timers.m[m.Bucket]
 
