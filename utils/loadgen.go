@@ -80,7 +80,7 @@ func main() {
 	host := flag.Arg(0)
 
 	if host == "" {
-		host = "localhost:1514"
+		host = "localhost:8125"
 	}
 
 	var wg sync.WaitGroup
