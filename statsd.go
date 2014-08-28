@@ -240,6 +240,9 @@ func handleMessage(buf []byte) {
 
 // parseMetric parses a raw metric into a Metric struct
 func parseMetric(b []byte) (*Metric, error) {
+	// Remove any whitespace characters
+	b = bytes.TrimSpace(b)
+
 	i := bytes.Index(b, []byte(":"))
 	j := bytes.Index(b, []byte("|"))
 	k := bytes.Index(b, []byte("@"))
