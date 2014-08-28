@@ -89,11 +89,18 @@ var timers = struct {
 
 // Internal metrics
 type Stats struct {
-	IngressRate     int64
-	IngressMetrics  int64
-	IngressCounters int64
-	IngressGauges   int64
-	IngressTimers   int64
+	RecvMessages uint64
+
+	RecvMetrics    uint64
+	SentMetrics    uint64
+	InvalidMetrics uint64
+
+	RecvCounters uint64
+	SentCounters uint64
+	RecvGauges   uint64
+	SentGauges   uint64
+	RecvTimers   uint64
+	SentTimers   uint64
 }
 
 var stats = &Stats{}
@@ -203,6 +210,8 @@ func handleConnection(conn net.Conn) {
 
 // Handle an event message
 func handleMessage(buf []byte) {
+	atomic.AddUint64(&stats.RecvMessages, 1)
+
 	// According to the statsd protocol, metrics should be separated by a
 	// newline. This parser isn't quite as strict since it may be receiving
 	// metrics from clients that aren't proper statsd clients (e.g. syslog).
@@ -222,6 +231,7 @@ func handleMessage(buf []byte) {
 		// metrics must have a : and | at a minimum
 		if !bytes.Contains(token, []byte(":")) ||
 			!bytes.Contains(token, []byte("|")) {
+			atomic.AddUint64(&stats.InvalidMetrics, 1)
 			continue
 		}
 
@@ -232,8 +242,12 @@ func handleMessage(buf []byte) {
 		metric, err := parseMetric(token)
 
 		if err != nil {
-			log.Printf("ERROR: Unable to parse metric %q: %s",
-				token, err)
+			if *debug {
+				log.Printf("ERROR: Unable to parse metric %q: %s",
+					token, err)
+			}
+
+			atomic.AddUint64(&stats.InvalidMetrics, 1)
 			continue
 		}
 
@@ -316,24 +330,24 @@ func processMetrics() {
 		case <-ticker.C:
 			flushMetrics()
 		case m := <-In:
+			atomic.AddUint64(&stats.RecvMetrics, 1)
+
 			if *debug {
 				log.Printf("DEBUG: Received metric for processing: %+v", m)
 			}
-
-			atomic.AddInt64(&stats.IngressMetrics, 1)
 
 			switch m.Type {
 			case Counter:
 				counters.Lock()
 				counters.m[m.Bucket] += m.Value.(int64)
 				counters.Unlock()
-				atomic.AddInt64(&stats.IngressCounters, 1)
+				atomic.AddUint64(&stats.RecvCounters, 1)
 
 			case Gauge:
 				gauges.Lock()
 				gauges.m[m.Bucket] = m.Value.(float64)
 				gauges.Unlock()
-				atomic.AddInt64(&stats.IngressGauges, 1)
+				atomic.AddUint64(&stats.RecvGauges, 1)
 
 			case Timer:
 				timers.Lock()
@@ -346,7 +360,7 @@ func processMetrics() {
 
 				timers.m[m.Bucket] = append(timers.m[m.Bucket], m.Value.(float64))
 				timers.Unlock()
-				atomic.AddInt64(&stats.IngressTimers, 1)
+				atomic.AddUint64(&stats.RecvTimers, 1)
 
 			default:
 				if *debug {
@@ -367,12 +381,23 @@ func flushMetrics() {
 	var buf bytes.Buffer
 	now := time.Now().Unix()
 
-	log.Printf("%+v", stats)
-
 	// Build buffer of stats
-	flushCounters(&buf, now)
-	flushGauges(&buf, now)
-	flushTimers(&buf, now)
+	nCounters := flushCounters(&buf, now)
+	nGauges := flushGauges(&buf, now)
+	nTimers := flushTimers(&buf, now)
+
+	stats.SentMetrics = nCounters + nGauges + nTimers
+	stats.SentCounters = nCounters
+	stats.SentGauges = nGauges
+	stats.SentTimers = nTimers
+
+	log.Printf("STATS: %+v", *stats)
+
+	// Add to internal stats and flush
+	fmt.Fprintln(&buf, "statsd.metrics.sent", nCounters+nGauges+nTimers, now)
+	fmt.Fprintln(&buf, "statsd.counters.sent", nCounters, now)
+	fmt.Fprintln(&buf, "statsd.gauges.sent", nGauges, now)
+	fmt.Fprintln(&buf, "statsd.timers.sent", nTimers, now)
 	flushInternalStats(&buf, now)
 
 	// Send metrics to Graphite
@@ -382,49 +407,67 @@ func flushMetrics() {
 // flushInternalStats writes the internal stats to the buffer
 func flushInternalStats(buf *bytes.Buffer, now int64) {
 	//fmt.Fprintf(buf, "statsd.metrics.per_second %d %d\n", v, now)
-	fmt.Fprintf(buf, "statsd.metrics.count %d %d\n",
-		atomic.LoadInt64(&stats.IngressMetrics), now)
-	fmt.Fprintf(buf, "statsd.counters.count %d %d\n",
-		atomic.LoadInt64(&stats.IngressCounters), now)
-	fmt.Fprintf(buf, "statsd.gauges.count %d %d\n",
-		atomic.LoadInt64(&stats.IngressGauges), now)
-	fmt.Fprintf(buf, "statsd.timers.count %d %d\n",
-		atomic.LoadInt64(&stats.IngressTimers), now)
+	fmt.Fprintln(buf, "statsd.metrics.recv",
+		atomic.LoadUint64(&stats.RecvMetrics), now)
+	fmt.Fprintln(buf, "statsd.counters.recv",
+		atomic.LoadUint64(&stats.RecvCounters), now)
+	fmt.Fprintln(buf, "statsd.gauges.recv",
+		atomic.LoadUint64(&stats.RecvGauges), now)
+	fmt.Fprintln(buf, "statsd.timers.recv",
+		atomic.LoadUint64(&stats.RecvTimers), now)
 
 	// Clear internal metrics
-	atomic.StoreInt64(&stats.IngressMetrics, 0)
-	atomic.StoreInt64(&stats.IngressCounters, 0)
-	atomic.StoreInt64(&stats.IngressGauges, 0)
-	atomic.StoreInt64(&stats.IngressTimers, 0)
+	atomic.StoreUint64(&stats.RecvMessages, 0)
+
+	atomic.StoreUint64(&stats.RecvMetrics, 0)
+	atomic.StoreUint64(&stats.SentMetrics, 0)
+
+	atomic.StoreUint64(&stats.RecvCounters, 0)
+	atomic.StoreUint64(&stats.SentCounters, 0)
+
+	atomic.StoreUint64(&stats.RecvGauges, 0)
+	atomic.StoreUint64(&stats.SentGauges, 0)
+
+	atomic.StoreUint64(&stats.RecvTimers, 0)
+	atomic.StoreUint64(&stats.SentTimers, 0)
+
 }
 
 // flushCounters writes the counters to the buffer
-func flushCounters(buf *bytes.Buffer, now int64) {
+func flushCounters(buf *bytes.Buffer, now int64) uint64 {
 	counters.Lock()
 	defer counters.Unlock()
+	var n uint64
 
 	for k, v := range counters.m {
 		fmt.Fprintln(buf, k, v, now)
 		delete(counters.m, k)
+		n++
 	}
+
+	return n
 }
 
 // flushGauges writes the gauges to the buffer
-func flushGauges(buf *bytes.Buffer, now int64) {
+func flushGauges(buf *bytes.Buffer, now int64) uint64 {
 	gauges.Lock()
 	defer gauges.Unlock()
+	var n uint64
 
 	for k, v := range gauges.m {
 		fmt.Fprintln(buf, k, v, now)
 		delete(gauges.m, k)
+		n++
 	}
+
+	return n
 }
 
 // flushTimers writes the timers and aggregate statistics to the buffer
-func flushTimers(buf *bytes.Buffer, now int64) {
+func flushTimers(buf *bytes.Buffer, now int64) uint64 {
 	timers.RLock()
 	defer timers.RUnlock()
-	var n int64
+	var n uint64
 
 	for k, t := range timers.m {
 		count := len(t)
@@ -438,7 +481,6 @@ func flushTimers(buf *bytes.Buffer, now int64) {
 
 		for _, v := range t {
 			sum += v
-			n++
 		}
 
 		// Linear average (mean)
@@ -452,8 +494,8 @@ func flushTimers(buf *bytes.Buffer, now int64) {
 		// Write out all derived stats
 		fmt.Fprintf(buf, "%s.count %d %d\n", k, count, now)
 		fmt.Fprintf(buf, "%s.mean %f %d\n", k, mean, now)
-		fmt.Fprintf(buf, "%s.lower %d %d\n", k, min, now)
-		fmt.Fprintf(buf, "%s.upper %d %d\n", k, max, now)
+		fmt.Fprintf(buf, "%s.lower %f %d\n", k, min, now)
+		fmt.Fprintf(buf, "%s.upper %f %d\n", k, max, now)
 
 		// Calculate and write out percentiles
 		for _, pct := range Percentiles {
@@ -462,7 +504,10 @@ func flushTimers(buf *bytes.Buffer, now int64) {
 		}
 
 		delete(timers.m, k)
+		n += (4 + uint64(len(Percentiles)))
 	}
+
+	return n
 }
 
 // percentile calculates Nth percentile of a list of values
