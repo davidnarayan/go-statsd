@@ -18,8 +18,8 @@ var metricTests = []metricTest{
 	{"mycounter:1|c\n", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
 	{"  mycounter:1|c ", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
 
-	{"mygauge:78|g", &Metric{Bucket: "mygauge", Value: uint64(78), Type: "g"}},
-	{"mytimer:123|ms", &Metric{Bucket: "mytimer", Value: uint64(123), Type: "ms"}},
+	{"mygauge:78|g", &Metric{Bucket: "mygauge", Value: float64(78), Type: "g"}},
+	{"mytimer:123|ms", &Metric{Bucket: "mytimer", Value: float64(123), Type: "ms"}},
 }
 
 // TestParseMetric tests all of the parsing

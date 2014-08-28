@@ -75,11 +75,11 @@ var counters = struct {
 // gauges holds all of the gauge metrics
 var gauges = struct {
 	sync.RWMutex
-	m map[string]uint64
-}{m: make(map[string]uint64)}
+	m map[string]float64
+}{m: make(map[string]float64)}
 
-// Timers is a list of uints
-type Timers []uint64
+// Timers is a list of floats
+type Timers []float64
 
 // timers holds all of the timer metrics
 var timers = struct {
@@ -287,7 +287,7 @@ func parseMetric(b []byte) (*Metric, error) {
 		m.Value = int64(float64(val) / sampleRate)
 
 	case Gauge, Timer:
-		val, err := strconv.ParseUint(string(v), 10, 64)
+		val, err := strconv.ParseFloat(string(v), 64)
 
 		if err != nil {
 			return nil, err
@@ -328,7 +328,7 @@ func processMetrics() {
 
 			case Gauge:
 				gauges.Lock()
-				gauges.m[m.Bucket] = m.Value.(uint64)
+				gauges.m[m.Bucket] = m.Value.(float64)
 				gauges.Unlock()
 				atomic.AddInt64(&stats.IngressGauges, 1)
 
@@ -341,7 +341,7 @@ func processMetrics() {
 					timers.m[m.Bucket] = t
 				}
 
-				timers.m[m.Bucket] = append(timers.m[m.Bucket], m.Value.(uint64))
+				timers.m[m.Bucket] = append(timers.m[m.Bucket], m.Value.(float64))
 				timers.Unlock()
 				atomic.AddInt64(&stats.IngressTimers, 1)
 
@@ -431,7 +431,7 @@ func flushTimers(buf *bytes.Buffer, now int64) {
 			break
 		}
 
-		var sum uint64
+		var sum float64
 
 		for _, v := range t {
 			sum += v
@@ -463,12 +463,12 @@ func flushTimers(buf *bytes.Buffer, now int64) {
 }
 
 // percentile calculates Nth percentile of a list of values
-func perc(values []uint64, pct int) float64 {
+func perc(values []float64, pct int) float64 {
 	p := float64(pct) / float64(100)
 	n := float64(len(values))
 	i := math.Ceil(p*n) - 1
 
-	return float64(values[int(i)])
+	return values[int(i)]
 }
 
 // sendGraphite sends metrics to graphite
