@@ -211,14 +211,17 @@ func handleMessage(buf []byte) {
 
 	buf = bytes.TrimSpace(buf)
 	i := bytes.LastIndex(buf, []byte(" "))
-	buf = buf[i+1 : len(buf)]
+
+	if i > -1 {
+		buf = buf[i+1 : len(buf)]
+	}
 
 	tokens := bytes.Split(buf, []byte("\n"))
 
 	for _, token := range tokens {
 		// metrics must have a : and | at a minimum
-		if bytes.Index(token, []byte(":")) == -1 ||
-			bytes.Index(token, []byte("|")) == -1 {
+		if !bytes.Contains(token, []byte(":")) ||
+			!bytes.Contains(token, []byte("|")) {
 			continue
 		}
 
@@ -401,7 +404,7 @@ func flushCounters(buf *bytes.Buffer, now int64) {
 	defer counters.Unlock()
 
 	for k, v := range counters.m {
-		fmt.Fprintf(buf, "%s %d %d\n", k, v, now)
+		fmt.Fprintln(buf, k, v, now)
 		delete(counters.m, k)
 	}
 }
@@ -412,7 +415,7 @@ func flushGauges(buf *bytes.Buffer, now int64) {
 	defer gauges.Unlock()
 
 	for k, v := range gauges.m {
-		fmt.Fprintf(buf, "%s %d %d\n", k, v, now)
+		fmt.Fprintln(buf, k, v, now)
 		delete(gauges.m, k)
 	}
 }
