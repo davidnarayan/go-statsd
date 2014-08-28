@@ -209,6 +209,7 @@ func handleMessage(buf []byte) {
 	// In that case, the code tries to remove any client prefix by considering
 	// everything after the last space as the list of metrics.
 
+	buf = bytes.TrimSpace(buf)
 	i := bytes.LastIndex(buf, []byte(" "))
 	buf = buf[i+1 : len(buf)]
 
