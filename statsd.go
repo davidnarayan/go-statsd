@@ -206,9 +206,13 @@ func handleMessage(buf []byte) {
 	// According to the statsd protocol, metrics should be separated by a
 	// newline. This parser isn't quite as strict since it may be receiving
 	// metrics from clients that aren't proper statsd clients (e.g. syslog).
-	// Instead, find metrics by looking for tokens between spaces and then
-	// use parseMetric to create an actual metric that can be aggregated.
-	tokens := bytes.Split(buf, []byte(" "))
+	// In that case, the code tries to remove any client prefix by considering
+	// everything after the last space as the list of metrics.
+
+	i := bytes.LastIndex(buf, []byte(" "))
+	buf = buf[i+1 : len(buf)]
+
+	tokens := bytes.Split(buf, []byte("\n"))
 
 	for _, token := range tokens {
 		// metrics must have a : and | at a minimum
@@ -243,13 +247,14 @@ func parseMetric(b []byte) (*Metric, error) {
 	// Remove any whitespace characters
 	b = bytes.TrimSpace(b)
 
+	// Find positions of the various separators
 	i := bytes.Index(b, []byte(":"))
 	j := bytes.Index(b, []byte("|"))
 	k := bytes.Index(b, []byte("@"))
 	v := b[i+1 : j]
 
 	// End position of the metric type is the end of the byte slice
-	// if no sample was sent.
+	// if no sample rate was sent.
 	tEnd := len(b)
 	var sampleRate float64 = 1
 
