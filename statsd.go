@@ -21,6 +21,8 @@ import (
 	"github.com/davecheney/profile"
 )
 
+//-----------------------------------------------------------------------------
+
 const FlushInterval = time.Duration(10 * time.Second)
 const BufSize = 8192
 
@@ -215,16 +217,24 @@ func handleMessage(buf []byte) {
 			continue
 		}
 
+		if *debug {
+			log.Printf("DEBUG: Parsing metric from token: %q", string(token))
+		}
+
 		metric, err := parseMetric(token)
 
 		if err != nil {
-			log.Printf("ERROR: Unable to parse metric %s: %s",
+			log.Printf("ERROR: Unable to parse metric %q: %s",
 				token, err)
 			continue
 		}
 
 		// Send metric off for processing
 		In <- metric
+
+		if *debug {
+			log.Printf("DEBUG: Queued metric for processing: %+v", metric)
+		}
 	}
 }
 
