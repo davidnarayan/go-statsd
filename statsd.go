@@ -498,15 +498,17 @@ func main() {
 	flag.Parse()
 
 	// Profiling
-	cfg := profile.Config{
-		CPUProfile:   *cpuprofile,
-		MemProfile:   *memprofile,
-		BlockProfile: *blockprofile,
-		ProfilePath:  ".",
-	}
+	if *cpuprofile || *memprofile || *blockprofile {
+		cfg := profile.Config{
+			CPUProfile:   *cpuprofile,
+			MemProfile:   *memprofile,
+			BlockProfile: *blockprofile,
+			ProfilePath:  ".",
+		}
 
-	p := profile.Start(&cfg)
-	defer p.Stop()
+		p := profile.Start(&cfg)
+		defer p.Stop()
+	}
 
 	// Process metrics as they arrive
 	go processMetrics()
