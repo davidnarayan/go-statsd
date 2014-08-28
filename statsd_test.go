@@ -5,6 +5,7 @@ import (
 	//"fmt"
 	"reflect"
 	"regexp"
+	//"sync"
 	"testing"
 )
 
@@ -14,12 +15,15 @@ type metricTest struct {
 }
 
 var metricTests = []metricTest{
-	{"mycounter:1|c", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
-	{"mycounter:1|c\n", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
-	{"  mycounter:1|c ", &Metric{Bucket: "mycounter", Value: int64(1), Type: "c"}},
+	{"mycounter:1|c", &Metric{Bucket: "mycounter", Value: int64(1), Type: Counter}},
+	{"mycounter:1|c\n", &Metric{Bucket: "mycounter", Value: int64(1), Type: Counter}},
+	{"  mycounter:1|c ", &Metric{Bucket: "mycounter", Value: int64(1), Type: Counter}},
 
-	{"mygauge:78|g", &Metric{Bucket: "mygauge", Value: float64(78), Type: "g"}},
-	{"mytimer:123|ms", &Metric{Bucket: "mytimer", Value: float64(123), Type: "ms"}},
+	{"mygauge:78|g", &Metric{Bucket: "mygauge", Value: float64(78), Type: Gauge}},
+	{"mygauge:8.9|g", &Metric{Bucket: "mygauge", Value: float64(8.9), Type: Gauge}},
+
+	{"mytimer:123|ms", &Metric{Bucket: "mytimer", Value: float64(123), Type: Timer}},
+	{"mytimer:0.789|ms", &Metric{Bucket: "mytimer", Value: float64(0.789), Type: Timer}},
 }
 
 // TestParseMetric tests all of the parsing
@@ -39,7 +43,7 @@ func TestParseMetric(t *testing.T) {
 		}
 
 		if got.Value != want.Value {
-			t.Errorf("parseMetric(%q): got: %d (%s), want %d (%s)",
+			t.Errorf("parseMetric(%q): got: %v (%s), want %v (%s)",
 				tt.input, got.Value, reflect.TypeOf(got.Value), want.Value,
 				reflect.TypeOf(want.Value))
 		}
@@ -68,7 +72,7 @@ func TestHandleMessage(t *testing.T) {
 				}
 
 				if got.Value != want.Value {
-					t.Errorf("handleMessage(%q): got: %d (%s), want %d (%s)",
+					t.Errorf("handleMessage(%q): got: %v (%s), want %v (%s)",
 						tt.input, got.Value, reflect.TypeOf(got.Value), want.Value,
 						reflect.TypeOf(want.Value))
 				}
@@ -90,6 +94,36 @@ func TestHandleMessage(t *testing.T) {
 
 	done <- true
 }
+
+// TODO: doesn't always work...
+/*
+func TestHandleMessageMultiple(t *testing.T) {
+	//done := make(chan bool)
+	num := 0
+	input := []byte("foo:1|c\nbar:1|c\nbaz:1|c")
+	metrics := bytes.Split(input, []byte("\n"))
+	var wg sync.WaitGroup
+	wg.Add(len(metrics))
+
+	go handleMessage(input)
+
+	go func() {
+		for got := range In {
+			fmt.Println(num)
+			fmt.Println(got)
+			num++
+			wg.Done()
+		}
+	}()
+
+	wg.Wait()
+
+	if num != len(metrics) {
+		t.Errorf("Error parsing multiple metrics: got %d, want %d", num,
+			len(metrics))
+	}
+}
+*/
 
 //-----------------------------------------------------------------------------
 // Benchmarks
